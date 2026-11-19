@@ -534,16 +534,39 @@ function drawDoorOverlay(){
 // キャラ絵は表示サイズのオフスクリーンcanvasへ先に焼き込んでから描く。
 // 元PNG（960x960）を毎フレーム直接描くと、モバイル等でデコード済みビットマップが
 // 破棄された瞬間に再デコード待ちで絵が抜け、キャラがチラついて消えて見えるため。
+// 焼き込みのタイミングにも注意が要る：complete（読み込み完了）になっても
+// デコードが終わっていない瞬間に drawImage すると、真っ白な絵が焼き込まれて
+// キャッシュに残り、そのフレームだけ消えたままになる（PCで待機絵だけ消えた原因。
+// 起動直後は待機絵がいちばん先に焼き込み対象になるため被害を受けやすい）。
+// そこで decode() の完了を待ってから焼き、さらに焼けた絵が全透明だったら
+// 「まだ描けていなかった」とみなしてキャッシュせず、次の描画で焼き直す。
 const frameCache = {};
+const frameReady = {};
 let lastCharCanvas = null;
+Object.keys(cf).forEach(n => {
+  const im = cf[n];
+  const mark = () => { frameReady[n] = true; };
+  if (im.decode) im.decode().then(mark, mark);
+  else if (im.complete && im.naturalWidth > 0) mark();
+  else im.addEventListener('load', mark);
+});
 function frameCanvas(name){
   if (frameCache[name]) return frameCache[name];
+  if (!frameReady[name]) return null;
   const im = cf[name];
   if (!(im.complete && im.naturalWidth > 0)) return null;
   const c = document.createElement('canvas');
   c.width = Math.max(1, Math.round(im.naturalWidth * CHAR_S));
   c.height = CHAR_H;
-  c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+  const g = c.getContext('2d');
+  g.drawImage(im, 0, 0, c.width, c.height);
+  // 焼き込み結果が全透明なら、まだデコードが間に合っていない。固定せず焼き直す
+  try {
+    const d = g.getImageData(0, 0, c.width, c.height).data;
+    let opaque = false;
+    for (let i = 3; i < d.length; i += 64) { if (d[i] > 0) { opaque = true; break; } }
+    if (!opaque) return null;
+  } catch (e) { /* 画素を読めない環境ではそのまま使う */ }
   frameCache[name] = c;
   return c;
 }
@@ -554,8 +577,6 @@ function charCanvas(name){
   if (lastCharCanvas) return lastCharCanvas;
   return frameCanvas('idle');
 }
-// 読み込み完了を待たずにデコードも温めておく（対応ブラウザのみ）
-Object.keys(cf).forEach(n => { const im = cf[n]; if (im.decode) im.decode().catch(() => {}); });
 function charVisual(){
   if (P.air) return { name: P.vy >= 0 ? 'jump_up' : 'jump_down', bob: 0 };
   if (P.state === 'run') return { name: 'run8_' + runFrameIndex(P.runMs), bob: 0 };
