@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>LINKLINE — プライベートルーム（探索）</title>
+<style>
+  body { margin:0; background:#10151d; color:#dfe7ef; font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif; display:flex; flex-direction:column; align-items:center; }
+  h1 { font-size:16px; letter-spacing:.18em; margin:12px 0 6px; color:#9fd8e8; font-weight:600; }
+  #wrap { position:relative; width:960px; height:540px; }
+  canvas { background:#0b0f16; border:1px solid #2b3a4a; border-radius:6px; display:block; }
+  #prompt { position:absolute; left:50%; bottom:118px; transform:translateX(-50%); background:rgba(10,16,24,.82); border:1px solid #3f6d80; color:#cfeef7; padding:5px 14px; border-radius:999px; font-size:13px; letter-spacing:.08em; display:none; white-space:nowrap; }
+  #msg { position:absolute; left:50%; bottom:14px; transform:translateX(-50%); width:860px; box-sizing:border-box; background:rgba(8,13,20,.88); border:1px solid #3f6d80; border-radius:8px; padding:12px 18px 10px; display:none; }
+  #msgName { color:#8fd8ec; font-size:13px; letter-spacing:.14em; margin-bottom:4px; }
+  #msgText { font-size:15px; line-height:1.75; color:#eef5f9; min-height:52px; }
+  #msgNext { text-align:right; color:#7fa8b8; font-size:11px; letter-spacing:.1em; }
+  #hud { position:absolute; top:10px; left:12px; font-size:12px; letter-spacing:.14em; color:#9fc6d4; text-shadow:0 1px 3px #000; }
+  .foot { margin:8px 0 14px; font-size:12.5px; color:#8fa5b5; text-align:center; line-height:1.9; }
+  kbd { background:#1d2836; border:1px solid #3a4c61; border-bottom-width:2px; border-radius:4px; padding:0 6px; font-family:inherit; color:#dfe7ef; }
+</style>
+</head>
+<body>
+<h1>LINKLINE — プライベートルーム</h1>
+<div id="wrap">
+  <canvas id="cv" width="960" height="540"></canvas>
+  <div id="hud">PRIVATE ROOM 2811</div>
+  <div id="prompt"></div>
+  <div id="msg"><div id="msgName"></div><div id="msgText"></div><div id="msgNext">↑ / E / Z ： 閉じる</div></div>
+</div>
+<div class="foot">
+  <kbd>←</kbd><kbd>→</kbd> 移動 ／ <kbd>Z</kbd> ジャンプ ／ <kbd>↑</kbd>・<kbd>E</kbd> 調べる ／ <kbd>R</kbd> 最初の位置へ<br>
+  部屋の中を歩いて、気になるところを調べてみてください。
+</div>
+<script>
+'use strict';
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const W = 960, H = 540;
+const WORLD_W = 2537;            // 部屋の全幅（背景2枚ぶん）
+const GROUND_Y = 505;            // 足元ライン
+const GRAV = 0.55, MOVE = 3.4, JUMP_V = -12.2;
+
+// 背景セグメント：床ラインの割合で位置合わせ
+const SEGS = [
+  { src: 'room_pano1.jpg', w: 1260, floor: 0.925 },
+  { src: 'room_pano2.jpg', w: 1277, floor: 0.845 },
+];
+const SEG_H = 540;
+const WALL_FLOOR_Y = 491;   // 壁と床の境界線（足元はこの少し手前＝床の上）
+let segX = 0; for (const s of SEGS) { s.x = segX; s.y = WALL_FLOOR_Y - s.floor * SEG_H; segX += s.w; }
+
+// 調べられる場所
+const SPOTS = [
+  { x: 126,  name: 'ベッド',       text: 'よく眠れるベッド。配達の合間に倒れ込むように眠るのが、いつの間にか一番の贅沢になった。' },
+  { x: 391,  name: 'シャワーポッド', text: '一日の汗と街道の埃を落とす場所。湯気の向こうでは、端末の通知だけが静かに瞬いている。' },
+  { x: 611,  name: '本棚',         text: '本と、小さなフィギュアたち。並べ方は彼女のこだわりで、誰にも触らせない。' },
+  { x: 832,  name: '端末デスク',    text: 'LINKLINEの端末。明日の依頼がもう届いている。受けるかどうかは、彼女の気分と懐具合次第だ。' },
+  { x: 1065, name: 'ソファ',       text: '窓際のソファ。休みの日は、ここで半日が溶けていく。' },
+  { x: 1166, name: '窓', r: 56,    text: '星と霧の山並み。現実の地図にはない景色が、この部屋の窓にはいつも広がっている。' },
+  { x: 1452, name: 'ミニバー',     text: 'ボトルとコーヒーマシン。小さな祝杯も、寝酒も、ここでまかなえる。' },
+  { x: 1662, name: '観葉植物',     text: '世話の簡単な観葉植物。それでも、帰ってくるたびに少しずつ伸びている。' },
+  { x: 1847, name: 'ドア',         text: '外へ続くドア。今はまだ、開ける用事がない。' },
+  { x: 2141, name: 'ワードローブ',  text: '制服と、私服と、少しだけ背伸びした服。明日の彼女は、ここから選ばれる。' },
+  { x: 2307, name: '絵画',         text: '山と湖の絵。行ったことのない場所なのに、どこか懐かしい。' },
+  { x: 2429, name: 'ローテーブル',  text: 'お茶のセットとクッション。誰かを招く予定は、今のところない。' },
+];
+
+// キャラ素材
+const IMG = {};
+function load(name, src) { const i = new Image(); i.src = src; IMG[name] = i; }
+load('idle', 'idle.png');
+for (let i = 0; i < 8; i++) load('run8_' + i, 'run8_' + i + '.png');
+load('jump_up', 'jump_up.png');
+load('jump_down', 'jump_down.png');
+for (const s of SEGS) { s.img = new Image(); s.img.src = s.src; }
+
+const RUN_DUR = [90, 80, 70, 85, 90, 80, 70, 85];
+const RUN_TOTAL = RUN_DUR.reduce((a, b) => a + b, 0);
+const CHAR_H = 320, CHAR_S = CHAR_H / 960, CHAR_FEET = 920 * CHAR_S;
+
+const P = { x: 240, y: GROUND_Y, vx: 0, vy: 0, face: 1, onGround: true, state: 'idle', runMs: 0 };
+let camX = 0, msgOpen = false;
+const keys = {};
+const promptEl = document.getElementById('prompt');
+const msgEl = document.getElementById('msg');
+const msgName = document.getElementById('msgName');
+const msgText = document.getElementById('msgText');
+
+function nearSpot() {
+  let best = null, bd = 1e9;
+  for (const s of SPOTS) { const d = Math.abs(P.x - s.x); if (d < (s.r || 74) && d < bd) { bd = d; best = s; } }
+  return best;
+}
+function openMsg(s) { msgOpen = true; msgName.textContent = '― ' + s.name; msgText.textContent = s.text; msgEl.style.display = 'block'; promptEl.style.display = 'none'; }
+function closeMsg() { msgOpen = false; msgEl.style.display = 'none'; }
+
+addEventListener('keydown', e => {
+  if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space'].includes(e.code)) e.preventDefault();
+  if (e.repeat) return;
+  keys[e.code] = true;
+  if (msgOpen) {
+    if (['ArrowUp','KeyE','KeyZ','Enter'].includes(e.code)) closeMsg();
+    return;
+  }
+  if (['ArrowUp','KeyE','Enter'].includes(e.code)) { const s = nearSpot(); if (s) openMsg(s); }
+  if (e.code === 'KeyR') resetPlayer();
+});
+addEventListener('keyup', e => { keys[e.code] = false; });
+msgEl.addEventListener('click', closeMsg);
+
+function resetPlayer() { P.x = 240; P.y = GROUND_Y; P.vx = 0; P.vy = 0; P.state = 'idle'; P.runMs = 0; closeMsg(); }
+
+function runFrameIndex() {
+  let t = P.runMs % RUN_TOTAL;
+  for (let i = 0; i < RUN_DUR.length; i++) { if (t < RUN_DUR[i]) return i; t -= RUN_DUR[i]; }
+  return 0;
+}
+function charFrame() {
+  if (!P.onGround) return P.vy < 0 ? IMG.jump_up : IMG.jump_down;
+  if (P.state === 'run') return IMG['run8_' + runFrameIndex()];
+  return IMG.idle;
+}
+
+let last = 0;
+function loop(ts) {
+  const dt = Math.min(50, ts - (last || ts)); last = ts;
+  // 入力・移動（メッセージ表示中は止まる）
+  let mv = 0;
+  if (!msgOpen) {
+    if (keys.ArrowLeft) mv -= 1;
+    if (keys.ArrowRight) mv += 1;
+    if (keys.KeyZ && P.onGround) { P.vy = JUMP_V; P.onGround = false; }
+  }
+  if (mv !== 0) { P.face = mv; P.vx = mv * MOVE; } else P.vx *= P.onGround ? 0.6 : 0.9;
+  P.x += P.vx;
+  if (P.x < 46) P.x = 46;
+  if (P.x > WORLD_W - 46) P.x = WORLD_W - 46;
+  if (!P.onGround || P.y < GROUND_Y) {
+    P.vy += GRAV; P.y += P.vy;
+    if (P.y >= GROUND_Y) { P.y = GROUND_Y; P.vy = 0; P.onGround = true; }
+  }
+  if (!P.onGround) P.state = 'air';
+  else if (Math.abs(P.vx) > 0.4) P.state = 'run';
+  else P.state = 'idle';
+  if (P.state === 'run') P.runMs += dt; else if (P.onGround) P.runMs = 0;
+
+  camX = Math.max(0, Math.min(WORLD_W - W, P.x - W / 2));
+
+  // プロンプト
+  if (!msgOpen) {
+    const s = nearSpot();
+    if (s) { promptEl.textContent = '↑ ： ' + s.name + 'を調べる'; promptEl.style.display = 'block'; }
+    else promptEl.style.display = 'none';
+  }
+
+  // 描画
+  ctx.fillStyle = '#0b0f16'; ctx.fillRect(0, 0, W, H);
+  for (const s of SEGS) {
+    if (s.img.complete && s.img.naturalWidth) ctx.drawImage(s.img, s.x - camX, s.y, s.w, SEG_H);
+  }
+  // 床面の奥行き：境界線のハイライトと、床側へのグラデーション
+  ctx.fillStyle = 'rgba(170,225,240,0.16)';
+  ctx.fillRect(0, WALL_FLOOR_Y, W, 1);
+  const fg = ctx.createLinearGradient(0, WALL_FLOOR_Y, 0, H);
+  fg.addColorStop(0, 'rgba(0,0,0,0)');
+  fg.addColorStop(1, 'rgba(0,0,0,0.30)');
+  ctx.fillStyle = fg; ctx.fillRect(0, WALL_FLOOR_Y, W, H - WALL_FLOOR_Y);
+  // キャラ
+  const img = charFrame();
+  const hgt = Math.max(0, GROUND_Y - P.y);
+  if (img && img.complete && img.naturalWidth) {
+    const w = img.naturalWidth * CHAR_S, h = img.naturalHeight * CHAR_S;
+    // 床への映り込み（足元で上下反転・圧縮、ジャンプで薄く）
+    const ra = Math.max(0, 0.27 - hgt * 0.0009);
+    if (ra > 0.01) {
+      ctx.save();
+      ctx.beginPath(); ctx.rect(0, GROUND_Y, W, H - GROUND_Y); ctx.clip();
+      ctx.translate(P.x - camX, GROUND_Y + 7);
+      ctx.scale(P.face, -0.34);
+      ctx.globalAlpha = ra;
+      ctx.drawImage(img, -w / 2, -CHAR_FEET - 6, w, h);
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+    // 足元の影（濃いめ／ジャンプ中は小さく・薄く）
+    ctx.fillStyle = 'rgba(0,0,0,' + Math.max(0.18, 0.58 - hgt * 0.0013).toFixed(3) + ')';
+    ctx.beginPath(); ctx.ellipse(P.x - camX, GROUND_Y + 9, Math.max(28, 56 - hgt * 0.07), 10, 0, 0, Math.PI * 2); ctx.fill();
+    const bob = 0;   // 待機時の上下動は接地感を損ねるため無し（2026-11-19 本人指示）
+    ctx.save();
+    ctx.translate(P.x - camX, GROUND_Y - CHAR_FEET + bob);
+    ctx.scale(P.face, 1);
+    ctx.drawImage(img, -w / 2, 0, w, h);
+    ctx.restore();
+  }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// テスト用ハンドル
+window.GAME = { P, SPOTS, nearSpot, openMsg, closeMsg, resetPlayer,
+  get msgOpen() { return msgOpen; }, get camX() { return camX; } };
+</script>
+</body>
+</html>
