@@ -2,20 +2,26 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>LINKLINE — プライベートルーム（探索）</title>
 <style>
   body { margin:0; background:#10151d; color:#dfe7ef; font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif; display:flex; flex-direction:column; align-items:center; }
   h1 { font-size:16px; letter-spacing:.18em; margin:12px 0 6px; color:#9fd8e8; font-weight:600; }
-  #wrap { position:relative; width:960px; height:540px; }
-  canvas { background:#0b0f16; border:1px solid #2b3a4a; border-radius:6px; display:block; }
+  #wrap { position:relative; width:min(960px,100vw); aspect-ratio:16/9; touch-action:none; }
+  canvas { background:#0b0f16; border:1px solid #2b3a4a; border-radius:6px; display:block; width:100%; height:100%; box-sizing:border-box; }
   #prompt { position:absolute; left:50%; bottom:118px; transform:translateX(-50%); background:rgba(10,16,24,.82); border:1px solid #3f6d80; color:#cfeef7; padding:5px 14px; border-radius:999px; font-size:13px; letter-spacing:.08em; display:none; white-space:nowrap; }
-  #msg { position:absolute; left:50%; bottom:14px; transform:translateX(-50%); width:860px; box-sizing:border-box; background:rgba(8,13,20,.88); border:1px solid #3f6d80; border-radius:8px; padding:12px 18px 10px; display:none; }
+  #msg { position:absolute; left:50%; bottom:14px; transform:translateX(-50%); width:min(860px,92%); box-sizing:border-box; z-index:6; background:rgba(8,13,20,.88); border:1px solid #3f6d80; border-radius:8px; padding:12px 18px 10px; display:none; }
   #msgName { color:#8fd8ec; font-size:13px; letter-spacing:.14em; margin-bottom:4px; }
   #msgText { font-size:15px; line-height:1.75; color:#eef5f9; min-height:52px; }
   #msgNext { text-align:right; color:#7fa8b8; font-size:11px; letter-spacing:.1em; }
   #hud { position:absolute; top:10px; left:12px; font-size:12px; letter-spacing:.14em; color:#9fc6d4; text-shadow:0 1px 3px #000; }
   .foot { margin:8px 0 14px; font-size:12.5px; color:#8fa5b5; text-align:center; line-height:1.9; }
   kbd { background:#1d2836; border:1px solid #3a4c61; border-bottom-width:2px; border-radius:4px; padding:0 6px; font-family:inherit; color:#dfe7ef; }
+  #touch { position:absolute; left:0; right:0; bottom:10px; display:none; justify-content:space-between; padding:0 12px; z-index:5; pointer-events:none; }
+  #touch .grp { display:flex; gap:10px; }
+  .tbtn { pointer-events:auto; width:56px; height:56px; border-radius:50%; border:1px solid #3f6d80; background:rgba(10,16,24,.66); color:#cfeef7; font-size:13px; letter-spacing:.04em; display:flex; align-items:center; justify-content:center; user-select:none; -webkit-user-select:none; touch-action:none; }
+  .tbtn.on { background:rgba(63,109,128,.8); }
+  body.touch #touch { display:flex; }
 </style>
 </head>
 <body>
@@ -25,10 +31,14 @@
   <div id="hud">PRIVATE ROOM 2811</div>
   <div id="prompt"></div>
   <div id="msg"><div id="msgName"></div><div id="msgText"></div><div id="msgNext">↑ / E / Z ： 閉じる</div></div>
+  <div id="touch">
+    <div class="grp"><div class="tbtn" id="tbL">←</div><div class="tbtn" id="tbR">→</div></div>
+    <div class="grp"><div class="tbtn" id="tbA">調べる</div><div class="tbtn" id="tbJ">跳ぶ</div></div>
+  </div>
 </div>
 <div class="foot">
-  <kbd>←</kbd><kbd>→</kbd> 移動 ／ <kbd>Z</kbd> ジャンプ ／ <kbd>↑</kbd>・<kbd>E</kbd> 調べる ／ <kbd>R</kbd> 最初の位置へ<br>
-  部屋の中を歩いて、気になるところを調べてみてください。
+  <kbd>←</kbd><kbd>→</kbd> 移動 ／ <kbd>Z</kbd>・<kbd>スペース</kbd> ジャンプ ／ <kbd>↑</kbd>・<kbd>E</kbd> 調べる ／ <kbd>R</kbd> 最初の位置へ<br>
+  部屋の中を歩いて、気になるところを調べてみてください。スマホでは画面のボタンでも操作できます。
 </div>
 <script>
 'use strict';
@@ -49,18 +59,18 @@ let segX = 0; for (const s of SEGS) { s.x = segX; s.y = WALL_FLOOR_Y - s.floor *
 
 // 調べられる場所
 const SPOTS = [
-  { x: 126,  name: 'ベッド',       text: 'よく眠れるベッド。配達の合間に倒れ込むように眠るのが、いつの間にか一番の贅沢になった。' },
-  { x: 391,  name: 'シャワーポッド', text: '一日の汗と街道の埃を落とす場所。湯気の向こうでは、端末の通知だけが静かに瞬いている。' },
-  { x: 611,  name: '本棚',         text: '本と、小さなフィギュアたち。並べ方は彼女のこだわりで、誰にも触らせない。' },
-  { x: 832,  name: '端末デスク',    text: 'LINKLINEの端末。明日の依頼がもう届いている。受けるかどうかは、彼女の気分と懐具合次第だ。' },
-  { x: 1065, name: 'ソファ',       text: '窓際のソファ。休みの日は、ここで半日が溶けていく。' },
-  { x: 1166, name: '窓', r: 56,    text: '星と霧の山並み。現実の地図にはない景色が、この部屋の窓にはいつも広がっている。' },
-  { x: 1452, name: 'ミニバー',     text: 'ボトルとコーヒーマシン。小さな祝杯も、寝酒も、ここでまかなえる。' },
-  { x: 1662, name: '観葉植物',     text: '世話の簡単な観葉植物。それでも、帰ってくるたびに少しずつ伸びている。' },
-  { x: 1847, name: 'ドア',         text: '外へ続くドア。今はまだ、開ける用事がない。' },
-  { x: 2141, name: 'ワードローブ',  text: '制服と、私服と、少しだけ背伸びした服。明日の彼女は、ここから選ばれる。' },
-  { x: 2307, name: '絵画',         text: '山と湖の絵。行ったことのない場所なのに、どこか懐かしい。' },
-  { x: 2429, name: 'ローテーブル',  text: 'お茶のセットとクッション。誰かを招く予定は、今のところない。' },
+  { id: 'bed',     x: 126,  name: 'ベッド',       text: 'よく眠れるベッド。配達の合間に倒れ込むように眠るのが、いつの間にか一番の贅沢になった。' },
+  { id: 'shower',  x: 350,  name: 'シャワーポッド', text: '一日の汗と街道の埃を落とす場所。湯気の向こうでは、端末の通知だけが静かに瞬いている。' },
+  { id: 'shelf',   x: 611,  name: '本棚',         text: '本と、小さなフィギュアたち。並べ方は彼女のこだわりで、誰にも触らせない。' },
+  { id: 'console', x: 832,  name: '端末デスク',    text: 'LINKLINEの端末。明日の依頼がもう届いている。受けるかどうかは、彼女の気分と懐具合次第だ。' },
+  { id: 'sofa',    x: 1065, name: 'ソファ',       text: '窓際のソファ。休みの日は、ここで半日が溶けていく。' },
+  { id: 'window',  x: 1166, name: '窓', r: 56,    text: '星と霧の山並み。現実の地図にはない景色が、この部屋の窓にはいつも広がっている。' },
+  { id: 'minibar', x: 1452, name: 'ミニバー',     text: 'ボトルとコーヒーマシン。小さな祝杯も、寝酒も、ここでまかなえる。' },
+  { id: 'plant',   x: 1662, name: '観葉植物',     text: '世話の簡単な観葉植物。それでも、帰ってくるたびに少しずつ伸びている。' },
+  { id: 'door',    x: 1847, name: 'ドア',         text: '外へ続くドア。今はまだ、開ける用事がない。' },
+  { id: 'ward',    x: 2100, name: 'ワードローブ',  text: '制服と、私服と、少しだけ背伸びした服。明日の彼女は、ここから選ばれる。' },
+  { id: 'paint',   x: 2307, name: '絵画',         text: '山と湖の絵。行ったことのない場所なのに、どこか懐かしい。' },
+  { id: 'table',   x: 2429, name: 'ローテーブル',  text: 'お茶のセットとクッション。誰かを招く予定は、今のところない。' },
 ];
 
 // キャラ素材
@@ -71,6 +81,29 @@ for (let i = 0; i < 8; i++) load('run8_' + i, 'run8_' + i + '.png');
 load('jump_up', 'jump_up.png');
 load('jump_down', 'jump_down.png');
 for (const s of SEGS) { s.img = new Image(); s.img.src = s.src; }
+
+// 状態変化型インタラクトの状態と、差し替え画像（縁をフェザー処理して馴染ませる）
+const ST = { rest: false, shower: false, console: 0, door: false, ward: false };
+function feather(img) {
+  const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+  const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+  g.globalCompositeOperation = 'destination-out';
+  const fx = c.width * 0.07, fy = c.height * 0.07;
+  let gr = g.createLinearGradient(0, 0, 0, fy); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, c.width, fy);
+  gr = g.createLinearGradient(0, c.height, 0, c.height - fy); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = gr; g.fillRect(0, c.height - fy, c.width, fy);
+  gr = g.createLinearGradient(0, 0, fx, 0); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, fx, c.height);
+  gr = g.createLinearGradient(c.width, 0, c.width - fx, 0); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = gr; g.fillRect(c.width - fx, 0, fx, c.height);
+  return c;
+}
+function loadOverlay(name, src) { const i = new Image(); i.onload = () => { IMG[name] = feather(i); }; i.src = src; }
+loadOverlay('doorOpen', 'door_open.png');
+loadOverlay('wardOpen', 'wardrobe_open.png');
+const DOOR_RECT = { x: 1697, y: 104, w: 306, h: 383 };
+const WARD_RECT = { x: 2005, y: 110, w: 187, h: 377 };
 
 const RUN_DUR = [90, 80, 70, 85, 90, 80, 70, 85];
 const RUN_TOTAL = RUN_DUR.reduce((a, b) => a + b, 0);
@@ -92,21 +125,70 @@ function nearSpot() {
 function openMsg(s) { msgOpen = true; msgName.textContent = '― ' + s.name; msgText.textContent = s.text; msgEl.style.display = 'block'; promptEl.style.display = 'none'; }
 function closeMsg() { msgOpen = false; msgEl.style.display = 'none'; }
 
+function spotPrompt(s) {
+  switch (s.id) {
+    case 'bed': return 'ベッドで横になる';
+    case 'shower': return ST.shower ? 'シャワーを止める' : 'シャワーを出す';
+    case 'console': return '端末を操作する';
+    case 'door': return ST.door ? 'ドアを閉める' : 'ドアを開ける';
+    case 'ward': return ST.ward ? 'ワードローブを閉める' : 'ワードローブを開ける';
+    default: return s.name + 'を調べる';
+  }
+}
+function actSpot() {
+  const s = nearSpot(); if (!s) return;
+  if (s.id === 'bed') { ST.rest = true; openMsg({ name: s.name, text: 'ベッドに横になった。配達の疲れが、じんわりとほどけていく。' }); return; }
+  if (s.id === 'shower') { ST.shower = !ST.shower; openMsg({ name: s.name, text: ST.shower ? 'シャワーを出した。湯気と水音が、ポッドの中を満たしていく。' : 'シャワーを止めた。水滴だけが、ガラスを伝って落ちていく。' }); return; }
+  if (s.id === 'console') {
+    ST.console = (ST.console + 1) % 3;
+    const t = { 0: '端末が通常表示に戻った。明日の依頼が、静かに瞬いている。', 1: '航路表示に切り替えた。明日の配達ルートが、光の線で宙に描かれる。', 2: 'ホログラムを消した。部屋が少しだけ暗くなる。' };
+    openMsg({ name: s.name, text: t[ST.console] }); return;
+  }
+  if (s.id === 'door') { ST.door = !ST.door; openMsg({ name: s.name, text: ST.door ? 'ドアを開けた。向こうは星と霧の闇。冷たい空気が、静かに流れ込んでくる。' : 'ドアを閉めた。部屋の静けさが戻ってくる。' }); return; }
+  if (s.id === 'ward') { ST.ward = !ST.ward; openMsg({ name: s.name, text: ST.ward ? 'ワードローブを開けた。制服と、私服と、少しだけ背伸びした服が並んでいる。' : 'ワードローブを閉めた。' }); return; }
+  openMsg(s);
+}
+function wake() { ST.rest = false; closeMsg(); }
+function pressAct() {
+  if (ST.rest) { wake(); return; }
+  if (msgOpen) { closeMsg(); return; }
+  actSpot();
+}
+function doJump() {
+  if (ST.rest) { wake(); return; }
+  if (msgOpen) { closeMsg(); return; }
+  if (P.onGround) { P.vy = JUMP_V; P.onGround = false; }
+}
+
 addEventListener('keydown', e => {
   if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space'].includes(e.code)) e.preventDefault();
   if (e.repeat) return;
   keys[e.code] = true;
-  if (msgOpen) {
-    if (['ArrowUp','KeyE','KeyZ','Enter'].includes(e.code)) closeMsg();
-    return;
-  }
-  if (['ArrowUp','KeyE','Enter'].includes(e.code)) { const s = nearSpot(); if (s) openMsg(s); }
+  const act = ['ArrowUp','KeyE','Enter'].includes(e.code);
+  const jmp = ['KeyZ','Space'].includes(e.code);
+  if (ST.rest) { if (act || jmp || e.code === 'ArrowLeft' || e.code === 'ArrowRight') { keys[e.code] = false; wake(); } return; }
+  if (msgOpen) { if (act || jmp) { keys[e.code] = false; closeMsg(); } return; }
+  if (act) actSpot();
   if (e.code === 'KeyR') resetPlayer();
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
-msgEl.addEventListener('click', closeMsg);
+msgEl.addEventListener('click', () => { if (ST.rest) wake(); else closeMsg(); });
 
-function resetPlayer() { P.x = 240; P.y = GROUND_Y; P.vx = 0; P.vy = 0; P.state = 'idle'; P.runMs = 0; closeMsg(); }
+// タッチ操作
+const touch = { left: false, right: false };
+if ('ontouchstart' in window || navigator.maxTouchPoints > 0) document.body.classList.add('touch');
+function bindBtn(id, down, up) {
+  const el = document.getElementById(id); if (!el) return;
+  el.addEventListener('pointerdown', e => { e.preventDefault(); el.classList.add('on'); down(); });
+  const off = e => { e.preventDefault(); el.classList.remove('on'); if (up) up(); };
+  el.addEventListener('pointerup', off); el.addEventListener('pointercancel', off); el.addEventListener('pointerleave', off);
+}
+bindBtn('tbL', () => { if (ST.rest) { wake(); return; } touch.left = true; }, () => { touch.left = false; });
+bindBtn('tbR', () => { if (ST.rest) { wake(); return; } touch.right = true; }, () => { touch.right = false; });
+bindBtn('tbA', pressAct);
+bindBtn('tbJ', doJump);
+
+function resetPlayer() { P.x = 240; P.y = GROUND_Y; P.vx = 0; P.vy = 0; P.state = 'idle'; P.runMs = 0; ST.rest = false; closeMsg(); }
 
 function runFrameIndex() {
   let t = P.runMs % RUN_TOTAL;
@@ -124,10 +206,10 @@ function loop(ts) {
   const dt = Math.min(50, ts - (last || ts)); last = ts;
   // 入力・移動（メッセージ表示中は止まる）
   let mv = 0;
-  if (!msgOpen) {
-    if (keys.ArrowLeft) mv -= 1;
-    if (keys.ArrowRight) mv += 1;
-    if (keys.KeyZ && P.onGround) { P.vy = JUMP_V; P.onGround = false; }
+  if (!msgOpen && !ST.rest) {
+    if (keys.ArrowLeft || touch.left) mv -= 1;
+    if (keys.ArrowRight || touch.right) mv += 1;
+    if ((keys.KeyZ || keys.Space) && P.onGround) { P.vy = JUMP_V; P.onGround = false; }
   }
   if (mv !== 0) { P.face = mv; P.vx = mv * MOVE; } else P.vx *= P.onGround ? 0.6 : 0.9;
   P.x += P.vx;
@@ -146,9 +228,12 @@ function loop(ts) {
 
   // プロンプト
   if (!msgOpen) {
-    const s = nearSpot();
-    if (s) { promptEl.textContent = '↑ ： ' + s.name + 'を調べる'; promptEl.style.display = 'block'; }
-    else promptEl.style.display = 'none';
+    if (ST.rest) { promptEl.textContent = '↑ ： 起きる'; promptEl.style.display = 'block'; }
+    else {
+      const s = nearSpot();
+      if (s) { promptEl.textContent = '↑ ： ' + spotPrompt(s); promptEl.style.display = 'block'; }
+      else promptEl.style.display = 'none';
+    }
   }
 
   // 描画
@@ -163,10 +248,69 @@ function loop(ts) {
   fg.addColorStop(0, 'rgba(0,0,0,0)');
   fg.addColorStop(1, 'rgba(0,0,0,0.30)');
   ctx.fillStyle = fg; ctx.fillRect(0, WALL_FLOOR_Y, W, H - WALL_FLOOR_Y);
+  // 状態変化オーバーレイ（ドア／ワードローブ）
+  if (ST.door && IMG.doorOpen) ctx.drawImage(IMG.doorOpen, DOOR_RECT.x - camX, DOOR_RECT.y, DOOR_RECT.w, DOOR_RECT.h);
+  if (ST.ward && IMG.wardOpen) ctx.drawImage(IMG.wardOpen, WARD_RECT.x - camX, WARD_RECT.y, WARD_RECT.w, WARD_RECT.h);
+  // 端末ホログラム（1:航路表示の光／2:消灯）
+  if (ST.console === 1) {
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    const gx = 730 - camX, gy = 318;
+    const rg = ctx.createRadialGradient(gx, gy, 6, gx, gy, 96);
+    rg.addColorStop(0, 'rgba(110,215,245,0.30)'); rg.addColorStop(1, 'rgba(110,215,245,0)');
+    ctx.fillStyle = rg; ctx.beginPath(); ctx.arc(gx, gy, 96, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(140,225,250,0.65)'; ctx.lineWidth = 1.6;
+    ctx.setLineDash([10, 7]); ctx.lineDashOffset = -ts * 0.02;
+    ctx.beginPath(); ctx.arc(gx, gy, 52, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(170,235,255,0.9)';
+    for (let i = 0; i < 5; i++) { const a = ts * 0.0006 + i * (Math.PI * 2 / 5); ctx.beginPath(); ctx.arc(gx + Math.cos(a) * 68, gy + Math.sin(a) * 26, 2.2, 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore();
+  } else if (ST.console === 2) {
+    ctx.fillStyle = 'rgba(3,5,9,0.55)'; ctx.fillRect(650 - camX, 262, 168, 118);
+    ctx.fillStyle = 'rgba(255,120,90,' + (0.45 + 0.35 * Math.sin(ts * 0.004)) + ')';
+    ctx.beginPath(); ctx.arc(806 - camX, 372, 2.4, 0, Math.PI * 2); ctx.fill();
+  }
+  // シャワー（水と湯気）
+  if (ST.shower) {
+    ctx.save();
+    ctx.beginPath(); ctx.rect(244 - camX, 64, 202, 414); ctx.clip();
+    ctx.fillStyle = 'rgba(160,215,235,0.07)'; ctx.fillRect(244 - camX, 64, 202, 414);
+    ctx.strokeStyle = 'rgba(190,230,248,0.5)'; ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    for (let i = 0; i < 26; i++) {
+      const sx = 252 - camX + (i * 61) % 188;
+      const sy = 74 + ((ts * 0.45 + i * 89) % 380);
+      ctx.moveTo(sx, sy); ctx.lineTo(sx - 3, sy + 17);
+    }
+    ctx.stroke();
+    for (let i = 0; i < 3; i++) {
+      const sx = 300 - camX + i * 52 + Math.sin(ts * 0.001 + i * 2.1) * 9;
+      const sy = 428 - ((ts * 0.03 + i * 130) % 300);
+      const sg = ctx.createRadialGradient(sx, sy, 2, sx, sy, 34);
+      sg.addColorStop(0, 'rgba(235,248,252,0.16)'); sg.addColorStop(1, 'rgba(235,248,252,0)');
+      ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(sx, sy, 34, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
   // キャラ
   const img = charFrame();
   const hgt = Math.max(0, GROUND_Y - P.y);
-  if (img && img.complete && img.naturalWidth) {
+  if (ST.rest && IMG.idle && IMG.idle.complete && IMG.idle.naturalWidth) {
+    // ベッドで横になる（立ち絵を倒してマットレス上に）
+    const li = IMG.idle, lw = li.naturalWidth * CHAR_S * 0.75, lh = li.naturalHeight * CHAR_S * 0.75;
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath(); ctx.ellipse(126 - camX, 356, 108, 9, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.save();
+    ctx.translate(246 - camX, 352);
+    ctx.rotate(-Math.PI / 2);
+    ctx.drawImage(li, -lw / 2, -CHAR_FEET * 0.75, lw, lh);
+    ctx.restore();
+    ctx.fillStyle = 'rgba(205,238,248,' + (0.55 + 0.3 * Math.sin(ts * 0.002)) + ')';
+    ctx.font = '600 15px sans-serif';
+    ctx.fillText('Z', 52 - camX + Math.sin(ts * 0.0016) * 3, 306 - (ts * 0.008 % 14));
+    ctx.font = '600 20px sans-serif';
+    ctx.fillText('Z', 68 - camX + Math.sin(ts * 0.0016 + 1) * 3, 292 - (ts * 0.008 % 14));
+  } else if (img && img.complete && img.naturalWidth) {
     const w = img.naturalWidth * CHAR_S, h = img.naturalHeight * CHAR_S;
     // 床への映り込み（足元で上下反転・圧縮、ジャンプで薄く）
     const ra = Math.max(0, 0.27 - hgt * 0.0009);
@@ -185,7 +329,7 @@ function loop(ts) {
     ctx.beginPath(); ctx.ellipse(P.x - camX, GROUND_Y + 9, Math.max(28, 56 - hgt * 0.07), 10, 0, 0, Math.PI * 2); ctx.fill();
     const bob = 0;   // 待機時の上下動は接地感を損ねるため無し（2026-11-19 本人指示）
     ctx.save();
-    ctx.translate(P.x - camX, GROUND_Y - CHAR_FEET + bob);
+    ctx.translate(P.x - camX, P.y - CHAR_FEET + bob);
     ctx.scale(P.face, 1);
     ctx.drawImage(img, -w / 2, 0, w, h);
     ctx.restore();
@@ -195,7 +339,7 @@ function loop(ts) {
 requestAnimationFrame(loop);
 
 // テスト用ハンドル
-window.GAME = { P, SPOTS, nearSpot, openMsg, closeMsg, resetPlayer,
+window.GAME = { P, SPOTS, ST, nearSpot, openMsg, closeMsg, resetPlayer, actSpot, wake, doJump, pressAct, touch,
   get msgOpen() { return msgOpen; }, get camX() { return camX; } };
 </script>
 </body>
